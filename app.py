@@ -1,9 +1,9 @@
 import os
-import requests
 import urllib.parse
 import re
 from bs4 import BeautifulSoup
 from flask import Flask, render_template_string, request, jsonify
+import cloudscraper # Importação da biblioteca antibloqueio
 
 app = Flask(__name__)
 
@@ -31,10 +31,10 @@ HTML_PAGE = """
 </head>
 <body>
     <div class="container">
-        <h2>📚 Pinkle Library (Render Cloud)</h2>
+        <h2>📚 Pinkle Library (Cloud Edition)</h2>
         <input type="text" id="query" placeholder="🔎 Nome do livro ou autor...">
         <button onclick="buscar()">Buscar no Acervo</button>
-        <div id="loading" class="loading">⏳ Consultando servidores...</div>
+        <div id="loading" class="loading">⏳ Quebrando bloqueios e buscando...</div>
         <ul id="results"></ul>
     </div>
 
@@ -73,7 +73,6 @@ HTML_PAGE = """
 """
 
 MIRRORS = ["https://annas-archive.li", "https://annas-archive.vg", "https://annas-archive.gl"]
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'}
 
 @app.route('/')
 def index():
@@ -85,10 +84,20 @@ def search():
     if not query: return jsonify([])
 
     q = urllib.parse.quote(query)
+    
+    # Cria o scraper configurado para agir exatamente como um Google Chrome de Desktop
+    scraper = cloudscraper.create_scraper(browser={
+        'browser': 'chrome',
+        'platform': 'windows',
+        'desktop': True
+    })
+
     for mirror in MIRRORS:
         try:
             url = f"{mirror}/search?q={q}&lang=pt"
-            res = requests.get(url, headers=HEADERS, timeout=15)
+            # O scraper lida automaticamente com os desafios do Cloudflare
+            res = scraper.get(url, timeout=25)
+            
             if res.status_code == 200:
                 soup = BeautifulSoup(res.text, 'html.parser')
                 items = soup.find_all('a', href=re.compile(r'^/md5/'))
@@ -101,9 +110,8 @@ def search():
                     link = mirror + item['href']
                     results.append({'title': title, 'link': link})
                 return jsonify(results)
-        except:
+        except Exception as e:
+            print(f"Erro ao acessar {mirror}: {e}")
             continue
             
-    return jsonify({'error': 'Servidores indisponíveis ou tráfego bloqueado.'})
-
-# O Render.com gerencia a inicialização usando Gunicorn, não precisamos do app.run()
+    return jsonify({'error': 'Cloudflare bloqueou o tráfego ou os servidores estão offline.'})
